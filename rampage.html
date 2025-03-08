@@ -251,25 +251,34 @@
                 this.direction = new THREE.Vector3(0, 0, 0);
                 this.lastDirection = new THREE.Vector3(1, 0, 0);
 
+                // Set a default mesh immediately to avoid undefined errors
+                const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 16);
+                const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.set(this.x, 0.5, this.z);
+                scene.add(this.mesh);
+        
+                const arrowGeometry = new THREE.ConeGeometry(0.2, 0.5, 8);
+                const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                this.arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
+                this.arrow.position.set(this.x, 1, this.z);
+                this.arrow.rotation.x = Math.PI / 2;
+                scene.add(this.arrow);
+
                 this.loadModel();
             }
 
             loadModel() {
                 const loader = new THREE.GLTFLoader();
                 loader.load(
-                    'models/character.glb', // Replace with your actual player model path
+                    'models/character.glb', // Ensure this path is correct
                     (gltf) => {
+                        // Remove the default mesh and replace it
+                        scene.remove(this.mesh);
                         this.mesh = gltf.scene;
-                        this.mesh.position.set(this.x, 0, this.z);
+                        this.mesh.position.set(this.x, 0, this.z); // Reset position to match current x, z
                         this.mesh.scale.set(0.5, 0.5, 0.5); // Adjust scale as needed
                         scene.add(this.mesh);
-
-                        const arrowGeometry = new THREE.ConeGeometry(0.2, 0.5, 8);
-                        const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-                        this.arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
-                        this.arrow.position.set(this.x, 1, this.z);
-                        this.arrow.rotation.x = Math.PI / 2;
-                        scene.add(this.arrow);
                     },
                     undefined,
                     (error) => {
@@ -303,14 +312,19 @@
 
                 if (this.canMove(newX, this.z)) this.x = newX;
                 if (this.canMove(this.x, newZ)) this.z = newZ;
-
-                this.mesh.position.set(this.x, this.mesh.position.y, this.z);
-                this.arrow.position.set(this.x, this.mesh.position.y + 1, this.z);
-
+        
+                // Safely update mesh and arrow positions
+                if (this.mesh) {
+                    this.mesh.position.set(this.x, this.mesh.position.y, this.z);
+                }
+                if (this.arrow) {
+                    this.arrow.position.set(this.x, this.mesh ? this.mesh.position.y + 1 : 1, this.z);
+                }
+        
                 if (this.direction.length() > 0) {
                     this.lastDirection.set(isoX, 0, isoZ).normalize();
                     const angle = Math.atan2(this.lastDirection.z, this.lastDirection.x) - Math.PI / 2;
-                    this.arrow.rotation.z = angle;
+                    if (this.arrow) this.arrow.rotation.z = angle;
                 }
             }
 
