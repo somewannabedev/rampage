@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>3D Isometric City Destruction Game</title>
     <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/GLTFLoader.js"></script>
     <style>
         body { margin: 0; overflow: hidden; background: #000; }
         .ui-container { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
@@ -21,7 +20,7 @@
         <div id="time">Time: 60</div>
     </div>
     <div class="control-panel">
-        <label>Map Size: <input type="number" id="mapSize" value="50" min="10" max="100"></label><br>
+        <label>Map Size: <input type="number" id="mapSize" value="40" min="10" max="100"></label><br>
         <label>Buildings: <input type="number" id="numBuildings" value="20" min="10" max="100"></label><br>
         <button id="regenerate">Regenerate Map</button>
     </div>
@@ -46,6 +45,7 @@
         camera.rotation.order = 'YXZ';
         camera.rotation.y = Math.PI / 4;
         camera.rotation.x = Math.atan(1 / Math.sqrt(2));
+        camera.lookAt(0, 0, 0);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -73,7 +73,7 @@
 
         // Base Building class
         class Building {
-            constructor(x, z, w, d, height, maxHP, modelPaths) {
+            constructor(x, z, w, d, height, maxHP, texturePaths, fallbackColor) {
                 this.x = x;
                 this.z = z;
                 this.w = w;
@@ -82,11 +82,12 @@
                 this.maxHP = maxHP;
                 this.currentHP = maxHP;
                 this.healthBar = null;
-                this.modelPaths = modelPaths || [
-                    'models/building_full.glb',
-                    'models/building_damaged.glb',
-                    'models/building_critical.glb'
-                ];
+                this.texturePaths = texturePaths || {
+                    full: 'textures/building_full.jpg',
+                    damaged: 'textures/building_damaged.jpg',
+                    critical: 'textures/building_critical.jpg'
+                };
+                this.fallbackColor = fallbackColor || 0x808080;
 
                 this.updateModel();
                 this.box = new THREE.Box3(
@@ -97,39 +98,36 @@
 
             updateModel() {
                 if (this.mesh) scene.remove(this.mesh);
-                const hpPercent = (this.currentHP / this.maxHP) * 100;
-                const modelPath = hpPercent >= 60 ? this.modelPaths[0] :
-                                 hpPercent >= 30 ? this.modelPaths[1] : this.modelPaths[2];
+                if (this.currentHP <= 0) return; // Skip mesh creation if HP is 0
 
-                const loader = new THREE.GLTFLoader();
+                const hpPercent = (this.currentHP / this.maxHP) * 100;
+                const texturePath = hpPercent >= 60 ? this.texturePaths.full :
+                                    hpPercent >= 30 ? this.texturePaths.damaged : this.texturePaths.critical;
+
+                const loader = new THREE.TextureLoader();
                 loader.load(
-                    modelPath,
-                    (gltf) => {
-                        if (this.mesh) scene.remove(this.mesh);
-                        this.mesh = gltf.scene;
-                        this.mesh.position.set(this.x + this.w / 2, 0, this.z + this.d / 2);
-                        this.mesh.scale.set(this.w, this.height, this.d);
-                        this.mesh.traverse(child => {
-                            if (child.isMesh) {
-                                child.material = new THREE.MeshLambertMaterial({
-                                    color: 0x808080,
-                                    transparent: true,
-                                    opacity: 1
-                                });
-                            }
+                    texturePath,
+                    (texture) => {
+                        if (this.currentHP <= 0) return; // Avoid adding mesh if destroyed during load
+                        const material = new THREE.MeshLambertMaterial({
+                            map: texture,
+                            transparent: true,
+                            opacity: 1
                         });
+                        this.mesh = new THREE.Mesh(new THREE.BoxGeometry(this.w, this.height, this.d), material);
+                        this.mesh.position.set(this.x + this.w / 2, this.height / 2, this.z + this.d / 2);
                         scene.add(this.mesh);
                     },
                     undefined,
                     (error) => {
-                        console.error(`Failed to load ${modelPath}:`, error);
-                        const geometry = new THREE.BoxGeometry(this.w, this.height, this.d);
+                        console.error(`Failed to load texture ${texturePath}:`, error);
+                        if (this.currentHP <= 0) return; // Avoid adding mesh if destroyed during load
                         const material = new THREE.MeshLambertMaterial({
-                            color: 0x808080,
+                            color: this.fallbackColor,
                             transparent: true,
                             opacity: 1
                         });
-                        this.mesh = new THREE.Mesh(geometry, material);
+                        this.mesh = new THREE.Mesh(new THREE.BoxGeometry(this.w, this.height, this.d), material);
                         this.mesh.position.set(this.x + this.w / 2, this.height / 2, this.z + this.d / 2);
                         scene.add(this.mesh);
                     }
@@ -140,7 +138,7 @@
                 const playerBehind = playerPos.z > this.z + this.d;
                 if (this.mesh) {
                     this.mesh.traverse(child => {
-                        if (child.isMesh) child.material.opacity = playerBehind ? 0.5 : 1; // Adjust transparency here (0.5 = 50% transparent)
+                        if (child.isMesh) child.material.opacity = playerBehind ? 0.5 : 1;
                     });
                 }
             }
@@ -149,51 +147,51 @@
         // Building subclasses
         class House1 extends Building {
             constructor(x, z) {
-                super(x, z, 1, 1, 1, 3, [
-                    'models/house1_full.glb',
-                    'models/house1_damaged.glb',
-                    'models/house1_critical.glb'
-                ]);
+                super(x, z, 1, 1, 1, 3, {
+                    full: 'textures/house1_full.jpg',
+                    damaged: 'textures/house1_damaged.jpg',
+                    critical: 'textures/house1_critical.jpg'
+                }, 0xff0000);
             }
         }
 
         class House2 extends Building {
             constructor(x, z) {
-                super(x, z, 1, 1, 2, 6, [
-                    'models/house2_full.glb',
-                    'models/house2_damaged.glb',
-                    'models/house2_critical.glb'
-                ]);
+                super(x, z, 1, 1, 2, 6, {
+                    full: 'textures/house2_full.jpg',
+                    damaged: 'textures/house2_damaged.jpg',
+                    critical: 'textures/house2_critical.jpg'
+                }, 0xff0000);
             }
         }
 
         class Shop1 extends Building {
             constructor(x, z, w, d, h) {
-                super(x, z, w, d, h, w * d * 3, [
-                    'models/shop1_full.glb',
-                    'models/shop1_damaged.glb',
-                    'models/shop1_critical.glb'
-                ]);
+                super(x, z, w, d, h, w * d * 3, {
+                    full: 'textures/shop1_full.jpg',
+                    damaged: 'textures/shop1_damaged.jpg',
+                    critical: 'textures/shop1_critical.jpg'
+                }, 0x00ff00);
             }
         }
 
         class Shop2 extends Building {
             constructor(x, z, w, d, h) {
-                super(x, z, w, d, h, w * d * 3, [
-                    'models/shop2_full.glb',
-                    'models/shop2_damaged.glb',
-                    'models/shop2_critical.glb'
-                ]);
+                super(x, z, w, d, h, w * d * 3, {
+                    full: 'textures/shop2_full.jpg',
+                    damaged: 'textures/shop2_damaged.jpg',
+                    critical: 'textures/shop2_critical.jpg'
+                }, 0x00ff00);
             }
         }
 
         class Office1 extends Building {
             constructor(x, z, w, d, h) {
-                super(x, z, w, d, h, w * d * 3, [
-                    'models/office1_full.glb',
-                    'models/office1_damaged.glb',
-                    'models/office1_critical.glb'
-                ]);
+                super(x, z, w, d, h, w * d * 3, {
+                    full: 'textures/office1_full.jpg',
+                    damaged: 'textures/office1_damaged.jpg',
+                    critical: 'textures/office1_critical.jpg'
+                }, 0x0000ff);
             }
         }
 
@@ -250,43 +248,18 @@
                 this.direction = new THREE.Vector3(0, 0, 0);
                 this.lastDirection = new THREE.Vector3(1, 0, 0);
 
-                this.loadModel();
-            }
+                const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 16);
+                const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.set(this.x, 0.5, this.z);
+                scene.add(this.mesh);
 
-            loadModel() {
-                const loader = new THREE.GLTFLoader();
-                loader.load(
-                    'models/character.glb', // Replace with your actual player model path
-                    (gltf) => {
-                        this.mesh = gltf.scene;
-                        this.mesh.position.set(this.x, 0, this.z);
-                        this.mesh.scale.set(0.5, 0.5, 0.5); // Adjust scale as needed
-                        scene.add(this.mesh);
-
-                        const arrowGeometry = new THREE.ConeGeometry(0.2, 0.5, 8);
-                        const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-                        this.arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
-                        this.arrow.position.set(this.x, 1, this.z);
-                        this.arrow.rotation.x = Math.PI / 2;
-                        scene.add(this.arrow);
-                    },
-                    undefined,
-                    (error) => {
-                        console.error('Failed to load player model:', error);
-                        const geometry = new THREE.CylinderGeometry(0.3, 0.3, 1, 16);
-                        const material = new THREE.MeshLambertMaterial({ color: 0x0000ff });
-                        this.mesh = new THREE.Mesh(geometry, material);
-                        this.mesh.position.set(this.x, 0.5, this.z);
-                        scene.add(this.mesh);
-
-                        const arrowGeometry = new THREE.ConeGeometry(0.2, 0.5, 8);
-                        const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-                        this.arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
-                        this.arrow.position.set(this.x, 1, this.z);
-                        this.arrow.rotation.x = Math.PI / 2;
-                        scene.add(this.arrow);
-                    }
-                );
+                const arrowGeometry = new THREE.ConeGeometry(0.2, 0.5, 8);
+                const arrowMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+                this.arrow = new THREE.Mesh(arrowGeometry, arrowMaterial);
+                this.arrow.position.set(this.x, 1, this.z);
+                this.arrow.rotation.x = Math.PI / 2;
+                scene.add(this.arrow);
             }
 
             update(delta) {
@@ -303,8 +276,8 @@
                 if (this.canMove(newX, this.z)) this.x = newX;
                 if (this.canMove(this.x, newZ)) this.z = newZ;
 
-                this.mesh.position.set(this.x, this.mesh.position.y, this.z);
-                this.arrow.position.set(this.x, this.mesh.position.y + 1, this.z);
+                this.mesh.position.set(this.x, 0.5, this.z);
+                this.arrow.position.set(this.x, 1, this.z);
 
                 if (this.direction.length() > 0) {
                     this.lastDirection.set(isoX, 0, isoZ).normalize();
@@ -356,53 +329,66 @@
             if (player.direction.length() > 0) player.direction.normalize();
         }
 
-        // Hit building
+        // Hit building with proper removal
         function hitBuilding() {
             const raycaster = new THREE.Raycaster();
             raycaster.set(player.mesh.position, player.lastDirection);
             const intersects = raycaster.intersectObjects(buildings.map(b => b.mesh));
             if (intersects.length > 0) {
-                const building = buildings.find(b => b.mesh === intersects[0].object);
+                const intersect = intersects[0];
+                const building = buildings.find(b => b.mesh === intersect.object);
                 if (building) {
-                    building.currentHP -= 1;
-                    score += 1;
-                    scoreElement.textContent = `Score: ${score}`;
-                    building.updateModel();
+                    const distanceToBuilding = building.box.distanceToPoint(player.mesh.position);
+                    if (distanceToBuilding <= 1) {
+                        building.currentHP -= 1;
+                        score += 1;
+                        scoreElement.textContent = `Score: ${score}`;
 
-                    if (building.currentHP <= 0) {
-                        scene.remove(building.mesh);
-                        if (building.healthBar) scene.remove(building.healthBar);
-                        for (let i = building.z; i < building.z + building.d; i++) {
-                            for (let j = building.x; j < building.x + building.w; j++) {
-                                grid[i][j] = null;
+                        if (building.currentHP <= 0) {
+                            // Ensure mesh and health bar are removed immediately
+                            if (building.mesh) {
+                                scene.remove(building.mesh);
+                                building.mesh = null; // Clear reference
                             }
+                            if (building.healthBar) {
+                                scene.remove(building.healthBar);
+                                building.healthBar = null; // Clear reference
+                            }
+                            for (let i = building.z; i < building.z + building.d; i++) {
+                                for (let j = building.x; j < building.x + building.w; j++) {
+                                    grid[i][j] = null;
+                                }
+                            }
+                            buildings = buildings.filter(b => b !== building);
+                        } else {
+                            building.updateModel();
+
+                            // Update health bar
+                            if (!building.healthBar) {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = 100;
+                                canvas.height = 20;
+                                building.healthCanvas = canvas;
+                                const texture = new THREE.CanvasTexture(canvas);
+                                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+                                building.healthBar = new THREE.Sprite(spriteMaterial);
+                                building.healthBar.position.set(
+                                    building.mesh.position.x,
+                                    building.height + 0.5,
+                                    building.mesh.position.z
+                                );
+                                building.healthBar.scale.set(2, 0.4, 1);
+                                scene.add(building.healthBar);
+                            }
+                            const ctx = building.healthCanvas.getContext('2d');
+                            ctx.clearRect(0, 0, 100, 20);
+                            ctx.fillStyle = 'red';
+                            ctx.fillRect(0, 0, 100, 20);
+                            const healthWidth = 100 * (building.currentHP / building.maxHP);
+                            ctx.fillStyle = 'green';
+                            ctx.fillRect(0, 0, healthWidth, 20);
+                            building.healthBar.material.map.needsUpdate = true;
                         }
-                        buildings = buildings.filter(b => b !== building);
-                    } else {
-                        if (!building.healthBar) {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = 100;
-                            canvas.height = 20;
-                            building.healthCanvas = canvas;
-                            const texture = new THREE.CanvasTexture(canvas);
-                            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-                            building.healthBar = new THREE.Sprite(spriteMaterial);
-                            building.healthBar.position.set(
-                                building.mesh.position.x,
-                                building.height + 0.5,
-                                building.mesh.position.z
-                            );
-                            building.healthBar.scale.set(2, 0.4, 1);
-                            scene.add(building.healthBar);
-                        }
-                        const ctx = building.healthCanvas.getContext('2d');
-                        ctx.clearRect(0, 0, 100, 20);
-                        ctx.fillStyle = 'red';
-                        ctx.fillRect(0, 0, 100, 20);
-                        const healthWidth = 100 * (building.currentHP / building.maxHP);
-                        ctx.fillStyle = 'green';
-                        ctx.fillRect(0, 0, healthWidth, 20);
-                        building.healthBar.material.map.needsUpdate = true;
                     }
                 }
             }
@@ -416,8 +402,8 @@
             generateBuildings(Math.min(Math.max(newNumBuildings, 10), 100), gridSize);
             player.x = 0;
             player.z = 0;
-            player.mesh.position.set(0, player.mesh.position.y, 0);
-            player.arrow.position.set(0, player.mesh.position.y + 1, 0);
+            player.mesh.position.set(0, 0.5, 0);
+            player.arrow.position.set(0, 1, 0);
             score = 0;
             time = 60;
             gameOver = false;
@@ -457,6 +443,7 @@
                 const camOffsetY = parseInt(camYInput.value);
                 const camOffsetZ = parseInt(camZInput.value);
                 camera.position.set(player.x + camOffsetX + 25, camOffsetY, player.z + camOffsetZ + 25);
+                camera.lookAt(player.x, 0, player.z);
 
                 buildings.forEach(building => building.updateTransparency(player.mesh.position));
 
