@@ -22,19 +22,41 @@
     </div>
     <div class="control-panel">
         <label>Map Size: <input type="number" id="mapSize" value="40" min="10" max="100"></label><br>
-        <label>Buildings: <input type="number" id="numBuildings" value="20" min="10" max="100"></label><br>
+        <label>Buildings: <input type="number" id="numBuildings" value="60" min="10" max="100"></label><br>
         <button id="regenerate">Regenerate Map</button>
     </div>
-    <div class="camera-controls">
+    <div class="camera-controls" hidden>
         <label>X: <input type="range" id="camX" min="-50" max="50" value="0"></label><br>
         <label>Y: <input type="range" id="camY" min="10" max="50" value="25"></label><br>
         <label>Z: <input type="range" id="camZ" min="-50" max="50" value="0"></label>
     </div>
     <script>
         // Scene setup
+		const mapData = [ //0 = Grass, 1 = Road, 2 = Path, 3 = Building
+			[0, 0, 0, 1, 1, 1, 0, 0, 0, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 0: Grass with a horizontal road
+			[0, 3, 0, 1, 0, 1, 0, 3, 0, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 1: Grass, building zones, road segments
+			[0, 0, 0, 1, 0, 1, 0, 0, 0, 3, 3, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 2
+			[1, 1, 1, 1, 0, 1, 1, 1, 1, 3, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 3: Mostly road
+			[0, 3, 3, 3, 3, 0, 0, 0, 0, 3, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 4: Grass
+			[0, 3, 3, 3, 3, 2, 0, 3, 0, 3, 3, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 5: Grass, building zones, path
+			[0, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 3, 0, 0, 3, 3], // Row 6
+			[0, 0, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 3, 1, 3, 3, 0, 0, 3, 3], // Row 7: Path and road
+			[0, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 3, 1, 3, 3, 0, 3, 3, 3], // Row 8: Grass, building zone, road
+			[0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 3, 1, 1, 1, 0, 3, 3, 3]  // Row 9
+			[0, 0, 0, 3, 3, 3, 3, 0, 0, 0, 3, 3, 3, 1, 1, 1, 0, 3, 3, 3], // Row 0: Grass with a horizontal road
+			[0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 3], // Row 1: Grass, building zones, road segments
+			[0, 3, 3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 2
+			[1, 1, 1, 3, 0, 1, 1, 3, 3, 3, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 3: Mostly road
+			[0, 3, 3, 3, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 4: Grass
+			[0, 3, 3, 3, 2, 2, 0, 3, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 5: Grass, building zones, path
+			[0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0], // Row 6
+			[0, 0, 0, 2, 0, 1, 1, 1, 0, 0, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 7: Path and road
+			[0, 3, 0, 0, 0, 1, 0, 0, 0, 0, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0], // Row 8: Grass, building zone, road
+			[0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 3, 3, 0, 1, 1, 1, 0, 0, 0, 0]  // Row 9
+		];
         const scene = new THREE.Scene();
         const aspect = window.innerWidth / window.innerHeight;
-        const frustumSize = 30;
+        const frustumSize = 20;
         const camera = new THREE.OrthographicCamera(
             frustumSize * aspect / -2,
             frustumSize * aspect / 2,
@@ -58,19 +80,76 @@
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
         directionalLight.position.set(10, 20, 10);
         scene.add(directionalLight);
+		
+		let gridSize = 40;
+		let grid = [];
+        let mapTiles = []; // To store tile meshes for later removal
 
-        // Grid
-        let gridSize = 40;
-        let gridHelper;
-        let grid = [];
+		function createMap(size) {
+			// Remove old tiles if they exist
+			mapTiles.forEach(tile => scene.remove(tile));
+			mapTiles = [];
 
-        function createGrid(size) {
-            if (gridHelper) scene.remove(gridHelper);
-            gridHelper = new THREE.GridHelper(size, size, 0x333333, 0x333333);
-            gridHelper.position.set(size / 2 - 0.5, 0, size / 2 - 0.5);
-            scene.add(gridHelper);
-            grid = Array.from({ length: size }, () => Array(size).fill(null));
-        }
+			// Resize mapData to match gridSize if needed
+			const map = (size === mapData.length) ? mapData : generateMap(size);
+
+			// Create tiles
+			for (let z = 0; z < size; z++) {
+				for (let x = 0; x < size; x++) {
+					let color, heightOffset;
+					switch (map[z][x]) {
+						case 0: // Grass
+							color = 0x4FB06D;
+							heightOffset = 0;
+							break;
+						case 1: // Road
+							color = 0x555555;
+							heightOffset = 0.01; // Slightly raised
+							break;
+						case 2: // Path
+							color = 0x8b4513;
+							heightOffset = 0.005;
+							break;
+						case 3: // Building spawn zone (grass-like)
+							color = 0x308a4c; // Slightly darker grass
+							heightOffset = 0;
+							break;
+						default:
+							color = 0x00ff00;
+							heightOffset = 0;
+					}
+					const geometry = new THREE.PlaneGeometry(1, 1);
+					const material = new THREE.MeshLambertMaterial({ color });
+					const tile = new THREE.Mesh(geometry, material);
+					tile.rotation.x = -Math.PI / 2; // Lay flat on XZ plane
+					tile.position.set(x + 0.5, heightOffset, z + 0.5);
+					scene.add(tile);
+					mapTiles.push(tile);
+				}
+			}
+
+			// Update the grid array with map data
+			grid = map.map(row => [...row]); // Clone to avoid reference issues
+		}
+
+		// Simple procedural map generator (customize as needed)
+		function generateMap(size) {
+			const map = Array.from({ length: size }, () => Array(size).fill(0));
+			// Example: Add a central road
+			for (let x = 0; x < size; x++) {
+				map[Math.floor(size / 2)][x] = 1; // Horizontal road
+			}
+			for (let z = 0; z < size; z++) {
+				map[z][Math.floor(size / 2)] = 1; // Vertical road
+			}
+			// Add some building zones
+			for (let i = 0; i < size * size * 0.1; i++) { // 10% of tiles
+				const x = Math.floor(Math.random() * size);
+				const z = Math.floor(Math.random() * size);
+				if (map[z][x] === 0) map[z][x] = 3;
+			}
+			return map;
+		}
 
         // Base Building class
         class Building {
@@ -81,7 +160,7 @@
                 this.d = d;
                 this.maxHP = maxHP;
                 this.currentHP = maxHP;
-                this.modelPath = modelPath;
+                this.modelPath = `models/${modelPath}`; // Fixed: Added 'models/' prefix
                 this.mesh = null;
                 this.healthBar = null;
                 this.box = null;
@@ -89,28 +168,30 @@
             }
 
             loadModel() {
-                const loader = new THREE.GLTFLoader();
-                loader.load(this.modelPath, (gltf) => {
-                    this.mesh = gltf.scene;
-                    this.mesh.position.set(this.x + this.w / 2, 0, this.z + this.d / 2);
-                    scene.add(this.mesh);
-                    this.mesh.traverse(child => {
-                        if (child.isMesh) {
-                            child.material = child.material.clone();
-                        }
-                    });
-                    this.box = new THREE.Box3().setFromObject(this.mesh);
-                    this.updateModel();
-                }, undefined, (error) => {
-                    console.error(`Failed to load model ${this.modelPath}:`, error);
-                    this.mesh = new THREE.Mesh(
-                        new THREE.BoxGeometry(this.w, this.d, 1),
-                        new THREE.MeshLambertMaterial({ color: 0xff0000 })
-                    );
-                    this.mesh.position.set(this.x + this.w / 2, 0.5, this.z + this.d / 2);
-                    scene.add(this.mesh);
-                    this.box = new THREE.Box3().setFromObject(this.mesh);
-                });
+				const loader = new THREE.GLTFLoader();
+				loader.load(this.modelPath, (gltf) => {
+					this.mesh = gltf.scene;
+					this.mesh.position.set(this.x + this.w / 2, 0, this.z + this.d / 2);
+					scene.add(this.mesh);
+					this.mesh.traverse(child => {
+						if (child.isMesh) {
+							child.material = child.material.clone();
+							child.userData.building = this;
+						}
+					});
+					this.box = new THREE.Box3().setFromObject(this.mesh);
+					this.updateModel();
+				}, undefined, (error) => {
+					console.error(`Failed to load model ${this.modelPath}:`, error);
+					this.mesh = new THREE.Mesh(
+						new THREE.BoxGeometry(this.w, this.d, 1),
+						new THREE.MeshLambertMaterial({ color: 0xff0000 })
+					);
+					this.mesh.position.set(this.x + this.w / 2, 0.5, this.z + this.d / 2);
+					scene.add(this.mesh);
+					this.mesh.userData.building = this;
+					this.box = new THREE.Box3().setFromObject(this.mesh);
+				});
             }
 
             updateModel() {
@@ -138,104 +219,86 @@
         }
 
         // Building subclasses
-        class Building_1_1 extends Building {
-            constructor(x, z) {
-                super(x, z, 1, 1, 3, 'models/Building_1_1.glb');
-            }
-        }
-
-        class House_1_1 extends Building {
-            constructor(x, z) {
-                super(x, z, 1, 1, 3, 'models/house_1_1.glb');
-            }
-        }
-
-        class House_2_2 extends Building {
-            constructor(x, z) {
-                super(x, z, 2, 2, 12, 'models/house_2_2.glb');
-            }
-        }
-
-        class Shop_2_2 extends Building {
-            constructor(x, z) {
-                super(x, z, 2, 2, 12, 'models/shop_2_2.glb');
-            }
-        }
-
-        class Tower_2_2 extends Building {
-            constructor(x, z) {
-                super(x, z, 2, 2, 12, 'models/tower_2_2.glb');
-            }
-        }
-
-        class Building_4_2 extends Building {
-            constructor(x, z) {
-                super(x, z, 4, 2, 24, 'models/building_4_2.glb');
-            }
-        }
+        class Building_1_1 extends Building { constructor(x, z) { super(x, z, 1, 1, 3, 'Building_1_1.glb'); } }
+        class House_1_1 extends Building { constructor(x, z) { super(x, z, 1, 1, 3, 'house_1_1.glb'); } }
+        class House_2_2 extends Building { constructor(x, z) { super(x, z, 2, 2, 12, 'house_2_2.glb'); } }
+        class Shop_2_2 extends Building { constructor(x, z) { super(x, z, 2, 2, 12, 'shop_2_2.glb'); } }
+        class Tower_2_2 extends Building { constructor(x, z) { super(x, z, 2, 2, 12, 'tower_2_2.glb'); } }
+        class Building_4_2 extends Building { constructor(x, z) { super(x, z, 4, 2, 24, 'building_4_2.glb'); } }
 
         let buildings = [];
 
         function generateBuildings(numBuildings, size) {
-            buildings.forEach(b => {
-                if (b.mesh) scene.remove(b.mesh);
-                if (b.healthBar) scene.remove(b.healthBar);
-            });
-            buildings = [];
-            createGrid(size);
+			buildings.forEach(b => {
+				if (b.mesh) scene.remove(b.mesh);
+				if (b.healthBar) scene.remove(b.healthBar);
+			});
+			buildings = [];
+			createMap(size); // Updated to createMap
 
-            const buildingTypes = [
-                { type: Building_1_1, size: [1, 1] },
-                { type: House_1_1, size: [1, 1] },
-                { type: House_2_2, size: [2, 2] },
-                { type: Shop_2_2, size: [2, 2] },
-                { type: Tower_2_2, size: [2, 2] },
-                { type: Building_4_2, size: [4, 2] }
-            ];
+			const buildingTypes = [
+				{ type: Building_1_1, size: [1, 1] },
+				{ type: House_1_1, size: [1, 1] },
+				{ type: House_2_2, size: [2, 2] },
+				{ type: Shop_2_2, size: [2, 2] },
+				{ type: Tower_2_2, size: [2, 2] },
+				{ type: Building_4_2, size: [4, 2] }
+			];
 
-            let attempts = 0;
-            while (buildings.length < numBuildings && attempts < 10000) {
-                const buildingType = buildingTypes[Math.floor(Math.random() * buildingTypes.length)];
-                const [w, d] = buildingType.size;
-                const x = Math.floor(Math.random() * (size - w));
-                const z = Math.floor(Math.random() * (size - d));
-                let free = true;
-                for (let i = z; i < z + d && i < size; i++) {
-                    for (let j = x; j < x + w && j < size; j++) {
-                        if (grid[i][j]) free = false;
-                    }
-                }
-                if (free) {
-                    const building = new buildingType.type(x, z);
-                    buildings.push(building);
-                    for (let i = z; i < z + d; i++) {
-                        for (let j = x; j < x + w; j++) {
-                            grid[i][j] = building;
-                        }
-                    }
-                }
-                attempts++;
-            }
-        }
+			let attempts = 0;
+			let placedBuildings = 0;
+			while (placedBuildings < numBuildings && attempts < 10000) {
+				const buildingType = buildingTypes[Math.floor(Math.random() * buildingTypes.length)];
+				const [w, d] = buildingType.size;
+				const x = Math.floor(Math.random() * (size - w));
+				const z = Math.floor(Math.random() * (size - d));
+				let canPlace = true;
+
+				// Check if the entire building footprint fits in a building spawn zone (3)
+				for (let i = z; i < z + d && i < size; i++) {
+					for (let j = x; j < x + w && j < size; j++) {
+						if (grid[i][j] !== 3 || buildings.some(b => b.x === j && b.z === i)) {
+							canPlace = false;
+							break;
+						}
+					}
+					if (!canPlace) break;
+				}
+
+				if (canPlace) {
+					const building = new buildingType.type(x, z);
+					buildings.push(building);
+					placedBuildings++;
+					// Mark the grid cells as occupied
+					for (let i = z; i < z + d; i++) {
+						for (let j = x; j < x + w; j++) {
+							grid[i][j] = building; // Replace 3 with the building instance
+						}
+					}
+				}
+				attempts++;
+			}
+		}
 
         // Player class
         class Player {
             constructor() {
-                this.x = 0;
-                this.z = 0;
-                this.speed = 5;
-                this.direction = new THREE.Vector3(0, 0, 0);
-                this.lastDirection = new THREE.Vector3(1, 0, 0);
-                this.mixer = null;
-                this.actions = {};
-                this.currentAction = null;
-                this.mesh = null;
-                this.loadModel();
-            }
+				this.x = 0;
+				this.z = 0;
+				this.speed = 5;
+				this.direction = new THREE.Vector3(0, 0, 0);
+				this.lastDirection = new THREE.Vector3(1, 0, 0);
+				this.mixer = null;
+				this.actions = {};
+				this.currentAction = null;
+				this.mesh = null;
+				this.rotationOffset = -Math.PI / 4; // Adjust this value if needed
+				this.loadModel();
+			}
 
             loadModel() {
                 const loader = new THREE.GLTFLoader();
-                loader.load('models/char_action.glb', (gltf) => {
+                loader.load('models/char.glb', (gltf) => { // Fixed: Added 'models/' prefix
                     this.mesh = gltf.scene;
                     this.mesh.position.set(this.x, 0, this.z);
                     scene.add(this.mesh);
@@ -275,45 +338,43 @@
             }
 
             update(delta) {
-                const moveDir = new THREE.Vector3(this.direction.x, 0, this.direction.z).normalize();
-                const isoX = (moveDir.x - moveDir.z) * 0.7071;
-                const isoZ = (moveDir.x + moveDir.z) * 0.7071;
+				const moveDir = new THREE.Vector3(this.direction.x, 0, this.direction.z).normalize();
+				const isoX = (moveDir.x - moveDir.z) * 0.7071;
+				const isoZ = (moveDir.x + moveDir.z) * 0.7071;
 
-                const dx = isoX * this.speed * delta;
-                const dz = isoZ * this.speed * delta;
+				const dx = isoX * this.speed * delta;
+				const dz = isoZ * this.speed * delta;
 
-                const newX = Math.max(0, Math.min(gridSize - 0.5, this.x + dx));
-                const newZ = Math.max(0, Math.min(gridSize - 0.5, this.z + dz));
+				const newX = Math.max(0, Math.min(gridSize - 0.5, this.x + dx));
+				const newZ = Math.max(0, Math.min(gridSize - 0.5, this.z + dz));
 
-                if (this.canMove(newX, this.z)) this.x = newX;
-                if (this.canMove(this.x, newZ)) this.z = newZ;
+				if (this.canMove(newX, this.z)) this.x = newX;
+				if (this.canMove(this.x, newZ)) this.z = newZ;
 
-                // Only update mesh position and rotation if mesh is loaded
-                if (this.mesh) {
-                    this.mesh.position.set(this.x, 0, this.z);
-                    if (this.direction.length() > 0) {
-                        this.lastDirection.set(isoX, 0, isoZ).normalize();
-                        const angle = Math.atan2(this.lastDirection.z, this.lastDirection.x) - Math.PI / 2;
-                        this.mesh.rotation.y = angle;
-                    }
-                }
+				if (this.mesh) {
+					this.mesh.position.set(this.x, 0, this.z);
+					if (this.direction.length() > 0) {
+						this.lastDirection.set(isoX, 0, isoZ).normalize();
+						const angle = Math.atan2(this.lastDirection.z, this.lastDirection.x) + this.rotationOffset;
+						this.mesh.rotation.y = angle;
+					}
+				}
 
-                // Update animations only if mixer is initialized
-                if (this.mixer) {
-                    this.mixer.update(delta);
-                }
-                if (!this.currentAction || !this.currentAction.isRunning() || this.currentAction !== this.actions['punch']) {
-                    if (this.direction.length() > 0) {
-                        if (this.currentAction !== this.actions['walk']) {
-                            this.setAction('walk');
-                        }
-                    } else {
-                        if (this.currentAction !== this.actions['idle']) {
-                            this.setAction('idle');
-                        }
-                    }
-                }
-            }
+				if (this.mixer) {
+					this.mixer.update(delta);
+				}
+				if (!this.currentAction || !this.currentAction.isRunning() || this.currentAction !== this.actions['punch']) {
+					if (this.direction.length() > 0) {
+						if (this.currentAction !== this.actions['walk']) {
+							this.setAction('walk');
+						}
+					} else {
+						if (this.currentAction !== this.actions['idle']) {
+							this.setAction('idle');
+						}
+					}
+				}
+			}										
 
             canMove(x, z) {
                 const playerBox = new THREE.Box3(
@@ -359,87 +420,88 @@
             if (player.direction.length() > 0) player.direction.normalize();
         }
 
-        // Hit building with proper removal
+        // Hit building function
         function hitBuilding() {
-            const raycaster = new THREE.Raycaster();
-            const playerPos = this.mesh ? this.mesh.position : new THREE.Vector3(this.x, 0, this.z);
-            raycaster.set(playerPos, player.lastDirection);
-            const intersects = raycaster.intersectObjects(buildings.map(b => b.mesh).filter(m => m));
-            if (intersects.length > 0) {
-                const intersect = intersects[0];
-                const building = buildings.find(b => b.mesh === intersect.object);
-                if (building) {
-                    const distanceToBuilding = building.box.distanceToPoint(playerPos);
-                    if (distanceToBuilding <= 1) {
-                        building.currentHP -= 1;
-                        score += 1;
-                        scoreElement.textContent = `Score: ${score}`;
+			if (!player.mesh) return;
+			const raycaster = new THREE.Raycaster();
+			const playerPos = player.mesh.position;
+			const direction = player.lastDirection.clone().normalize();
+			raycaster.set(playerPos, direction);
+			const intersects = raycaster.intersectObjects(buildings.map(b => b.mesh).filter(m => m), true);
+			if (intersects.length > 0) {
+				const intersect = intersects[0];
+				const building = intersect.object.userData.building;
+				if (building) {
+					const distanceToBuilding = intersect.distance;
+					if (distanceToBuilding <= 1.5) {
+						building.currentHP -= 1;
+						score += 1;
+						scoreElement.textContent = `Score: ${score}`;
 
-                        if (building.currentHP <= 0) {
-                            if (building.mesh) {
-                                scene.remove(building.mesh);
-                                building.mesh = null;
-                            }
-                            if (building.healthBar) {
-                                scene.remove(building.healthBar);
-                                building.healthBar = null;
-                            }
-                            for (let i = building.z; i < building.z + building.d; i++) {
-                                for (let j = building.x; j < building.x + building.w; j++) {
-                                    grid[i][j] = null;
-                                }
-                            }
-                            buildings = buildings.filter(b => b !== building);
-                        } else {
-                            building.updateModel();
-
-                            if (!building.healthBar && building.box) {
-                                const canvas = document.createElement('canvas');
-                                canvas.width = 100;
-                                canvas.height = 20;
-                                building.healthCanvas = canvas;
-                                const texture = new THREE.CanvasTexture(canvas);
-                                const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-                                building.healthBar = new THREE.Sprite(spriteMaterial);
-                                building.healthBar.position.set(
-                                    building.mesh.position.x,
-                                    building.box.max.y + 0.5,
-                                    building.mesh.position.z
-                                );
-                                building.healthBar.scale.set(2, 0.4, 1);
-                                scene.add(building.healthBar);
-                            }
-                            if (building.healthCanvas) {
-                                const ctx = building.healthCanvas.getContext('2d');
-                                ctx.clearRect(0, 0, 100, 20);
-                                ctx.fillStyle = 'red';
-                                ctx.fillRect(0, 0, 100, 20);
-                                const healthWidth = 100 * (building.currentHP / building.maxHP);
-                                ctx.fillStyle = 'green';
-                                ctx.fillRect(0, 0, healthWidth, 20);
-                                building.healthBar.material.map.needsUpdate = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+						if (building.currentHP <= 0) {
+							if (building.mesh) {
+								scene.remove(building.mesh);
+								building.mesh = null;
+							}
+							if (building.healthBar) {
+								scene.remove(building.healthBar);
+								building.healthBar = null;
+							}
+							for (let i = building.z; i < building.z + building.d; i++) {
+								for (let j = building.x; j < building.x + building.w; j++) {
+									grid[i][j] = null;
+								}
+							}
+							buildings = buildings.filter(b => b !== building);
+						} else {
+							building.updateModel();
+							if (!building.healthBar && building.box) {
+								const canvas = document.createElement('canvas');
+								canvas.width = 100;
+								canvas.height = 20;
+								building.healthCanvas = canvas;
+								const texture = new THREE.CanvasTexture(canvas);
+								const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+								building.healthBar = new THREE.Sprite(spriteMaterial);
+								building.healthBar.position.set(
+									building.mesh.position.x,
+									building.box.max.y + 0.5,
+									building.mesh.position.z
+								);
+								building.healthBar.scale.set(2, 0.4, 1);
+								scene.add(building.healthBar);
+							}
+							if (building.healthCanvas) {
+								const ctx = building.healthCanvas.getContext('2d');
+								ctx.clearRect(0, 0, 100, 20);
+								ctx.fillStyle = 'red';
+								ctx.fillRect(0, 0, 100, 20);
+								const healthWidth = 100 * (building.currentHP / building.maxHP);
+								ctx.fillStyle = 'green';
+								ctx.fillRect(0, 0, healthWidth, 20);
+								building.healthBar.material.map.needsUpdate = true;
+							}
+						}
+					}
+				}
+			}
+		}
 
         // UI controls
         document.getElementById('regenerate').addEventListener('click', () => {
-            const newGridSize = parseInt(document.getElementById('mapSize').value);
-            const newNumBuildings = parseInt(document.getElementById('numBuildings').value);
-            gridSize = Math.min(Math.max(newGridSize, 10), 100);
-            generateBuildings(Math.min(Math.max(newNumBuildings, 10), 100), gridSize);
-            player.x = 0;
-            player.z = 0;
-            if (player.mesh) player.mesh.position.set(0, 0, 0);
-            score = 0;
-            time = 60;
-            gameOver = false;
-            scoreElement.textContent = `Score: ${score}`;
-            timeElement.textContent = `Time: ${Math.ceil(time)}`;
-        });
+			const newGridSize = parseInt(document.getElementById('mapSize').value);
+			const newNumBuildings = parseInt(document.getElementById('numBuildings').value);
+			gridSize = Math.min(Math.max(newGridSize, 10), 100);
+			generateBuildings(Math.min(Math.max(newNumBuildings, 10), 100), gridSize);
+			player.x = 0;
+			player.z = 0;
+			if (player.mesh) player.mesh.position.set(0, 0, 0);
+			score = 0;
+			time = 60;
+			gameOver = false;
+			scoreElement.textContent = `Score: ${score}`;
+			timeElement.textContent = `Time: ${Math.ceil(time)}`;
+		});
 
         // Camera controls
         const camXInput = document.getElementById('camX');
@@ -490,8 +552,8 @@
         }
 
         // Initial setup
-        createGrid(gridSize);
-        generateBuildings(20, gridSize);
+        createMap(gridSize);
+        generateBuildings(40, gridSize);
         animate();
 
         // Handle window resize
